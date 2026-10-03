@@ -1,0 +1,43 @@
+services:
+  datadog-agent:
+    image: gcr.io/datadoghq/agent:7
+    environment:
+      DD_API_KEY: ${DD_API_KEY:?set DD_API_KEY in .env}
+      DD_SITE: ${DD_SITE:-datadoghq.com}
+      DD_APM_ENABLED: "true"
+      DD_APM_NON_LOCAL_TRAFFIC: "true"   # accept traces from other containers
+      DD_LOGS_ENABLED: "true"
+      DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL: "true"
+      DD_HOSTNAME: datadog-test-host
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /proc/:/host/proc/:ro
+      - /sys/fs/cgroup/:/host/sys/fs/cgroup:ro
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: orders
+      POSTGRES_USER: orders
+      POSTGRES_PASSWORD: orders
+
+  inventory-service:
+    build: { context: ., args: { SERVICE: inventory-service } }
+    environment: &dd-common
+      DD_AGENT_HOST: datadog-agent
+      DD_ENV: dev
+      DD_VERSION: 0.0.1
+      DD_LOGS_INJECTION: "true"
+      DD_TRACE_SAMPLE_RATE: "1"
+      DD_SERVICE: inventory-service
+    depends_on: [datadog-agent]
+
+  orders-service:
+    build: { context: ., args: { SERVICE: orders-service } }
+    ports: ["8080:8080"]
+    environment:
+      <<: *dd-common
+      DD_SERVICE: orders-service
+      INVENTORY_URL: http://inventory-service:8081
+      DB_URL: jdbc:postgresql://postgres:5432/orders
+    depends_on: [postgres, inventory-service, datadog-agent]
